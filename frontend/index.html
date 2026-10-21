@@ -1,0 +1,109 @@
+﻿<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nasi Uduk Mpo Rohaya</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-amber-50 text-gray-800 font-sans">
+    <header class="bg-amber-700 text-white shadow-md py-6 text-center">
+        <h1 class="text-3xl font-bold">Nasi Uduk Mpo Rohaya</h1>
+        <p class="text-amber-200 mt-1">Gurih, Lezat, Porsi Mantap dengan Pilihan Lauk Favorit!</p>
+    </header>
+
+    <main class="max-w-4xl mx-auto p-4 md:p-6">
+        <section class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4 text-amber-900 border-b-2 border-amber-300 pb-2">Pilih Paket Andalan</h2>
+            <div id="menu-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Data menu akan dimuat secara dinamis di sini -->
+                <div class="bg-white p-4 rounded-xl shadow-md animate-pulse">
+                    <div class="bg-gray-200 h-40 rounded-lg mb-4"></div>
+                    <div class="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Form Pemesanan / Checkout -->
+        <section class="bg-white p-6 rounded-xl shadow-md border border-amber-200">
+            <h2 class="text-xl font-semibold mb-4 text-amber-900">Formulir Pemesanan</h2>
+            <form id="order-form" onsubmit="submitOrder(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nama Pemesan</label>
+                    <input type="text" id="customer-name" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Masukkan nama Anda...">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Pilih Paket ID</label>
+                    <input type="number" id="package-id" required min="1" max="4" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Contoh: 1 (Paket Komplit)">
+                </div>
+                <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg transition duration-200 shadow">
+                    Kirim Pesanan ke Dapur 🚀
+                </button>
+            </form>
+            <div id="order-result" class="mt-4 hidden p-4 rounded-lg bg-green-100 text-green-800"></div>
+        </section>
+    </main>
+
+    <script>
+        // Simulasi atau fetch data dari Menu Service backend
+        async function loadMenus() {
+            try {
+                // Gambar ilustrasi per menu
+                const images = [
+                    "https://images.unsplash.com/photo-1555126634-323283e090fa?auto=format&fit=crop&w=600&q=80", // Paket Komplit
+                    "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=600&q=80", // Paket Sederhana
+                    "https://images.unsplash.com/photo-1541544741938-0af808871cc0?auto=format&fit=crop&w=600&q=80", // Paket Semur
+                    "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=600&q=80"  // Paket Bihun Only
+                ];
+
+                const response = await fetch('/api/v1/menus');
+                const menus = await response.json();
+                const container = document.getElementById('menu-container');
+                container.innerHTML = '';
+
+                menus.forEach((menu, index) => {
+                    const imgUrl = images[index % images.length];
+                    let card = `
+                        <div class="bg-white rounded-xl shadow-md overflow-hidden border border-amber-100 hover:shadow-lg transition">
+                            <img src="${imgUrl}" alt="${menu.name}" class="w-full h-44 object-cover">
+                            <div class="p-4">
+                                <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-semibold">Paket ID: ${menu.id}</span>
+                                <h3 class="text-lg font-bold text-gray-900 mt-2">${menu.name}</h3>
+                                <ul class="text-sm text-gray-600 mt-2 list-disc list-inside space-y-1">
+                                    ${menu.items.map(item => `<li>${item}</li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                    container.innerHTML += card;
+                });
+            } catch (error) {
+                console.error("Gagal memuat menu:", error);
+            }
+        }
+
+        async function submitOrder(event) {
+            event.preventDefault();
+            const name = document.getElementById('customer-name').value;
+            const packageId = parseInt(document.getElementById('package-id').value);
+
+            try {
+                const res = await fetch('/api/v1/orders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ package_id: packageId, customer_name: name })
+                });
+                const data = await res.json();
+                const resultDiv = document.getElementById('order-result');
+                resultDiv.classList.remove('hidden');
+                resultDiv.innerHTML = `<strong>Berhasil!</strong> ${data.message} (ID Pesanan: ${data.order_id})`;
+            } catch (err) {
+                alert("Terjadi kesalahan saat mengirim pesanan.");
+            }
+        }
+
+        loadMenus();
+    </script>
+</body>
+</html>
