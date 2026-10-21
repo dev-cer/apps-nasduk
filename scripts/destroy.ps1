@@ -32,7 +32,7 @@ function Get-Setting($name, $default = '') {
 
 $ClusterName = Get-Setting 'CLUSTER_NAME' 'nasduk'
 $Region = Get-Setting 'REGION' 'JKT1'  # Civo region Jakarta, Indonesia
-$DnsZone = Get-Setting 'DNS_ZONE' 'apps.arupa.id'
+$DnsZone = Get-Setting 'DNS_ZONE' 'sslip.io'
 $Subdomain = Get-Setting 'SUBDOMAIN' 'nasduk'
 $env:KUBECONFIG = Join-Path $ScriptDir ".kubeconfig-$ClusterName"
 
@@ -53,7 +53,7 @@ if (Get-Command kubectl -ErrorAction SilentlyContinue) {
 }
 
 # 2. Hapus record DNS supaya subdomain tidak menunjuk ke IP yang nanti dipakai orang lain
-if ($DnsZone) {
+if ($DnsZone -and $DnsZone -ne 'sslip.io') {
     $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
     $json = civo domain record ls $DnsZone -o json 2> $null
     $ErrorActionPreference = $old
