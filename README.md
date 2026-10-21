@@ -16,18 +16,19 @@ Script di folder `scripts/` membuat cluster Civo (**region Jakarta `JKT1`, 1 nod
 1. **Pasang tool:**
    - Linux: `curl -sL https://civo.com/get | sh` (Civo CLI) dan [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/). Butuh bash 4.2+.
    - Windows: Civo CLI dari [github.com/civo/cli/releases](https://github.com/civo/cli/releases) (atau `choco install civo-cli`), dan kubectl lewat `winget install -e --id Kubernetes.kubectl`.
-   - Opsional: [GitHub CLI](https://cli.github.com/) (`gh auth login`), supaya secret `CIVO_KUBECONFIG` di GitHub otomatis diperbarui ke cluster baru.
-2. **Siapkan:**
-   - **Civo API key**: Dashboard Civo > Settings > Profile > Security.
-   - **GitHub token** dengan scope `read:packages`, untuk menarik image dari GHCR. Kosongkan username kalau package GHCR dibuat public.
+   - Disarankan: [GitHub CLI](https://cli.github.com/) lalu `gh auth login`. Dengan ini secret `CIVO_KUBECONFIG` untuk GitHub Actions otomatis diisi setiap kali cluster dibuat ulang.
+2. **Siapkan Civo API key**: Dashboard Civo > Settings > Profile > Security.
+
+Image di GHCR (`apps-nasduk`, `apps-nasduk-order`, `apps-nasduk-frontend`) public, jadi tidak perlu token GitHub. Kalau suatu saat dijadikan private, script otomatis memakai login `gh` (perlu `gh auth refresh -h github.com -s read:packages`), atau menanyakan token **classic** dengan scope `read:packages`. Token fine-grained tidak didukung GHCR.
 
 ### Yang terjadi saat deploy
 
-1. Run pertama menanyakan API key Civo, username GitHub, dan token GHCR. Jawabannya disimpan di `scripts/.deploy.env` (tidak ikut ke git), jadi run berikutnya langsung jalan tanpa pertanyaan.
-2. Cluster `nasduk` dibuat (2–5 menit). Kalau sudah ada, cluster dipakai ulang.
-3. Secret `ghcr-secret` dan `order-admin` dibuat. Token admin dibuat acak sekali, lalu disimpan.
-4. `k8s/` di-apply, lalu script menunggu sampai semua pod jalan dan IP publik muncul.
-5. Script menampilkan URL aplikasi, URL halaman admin, dan token admin.
+1. Run pertama menanyakan API key Civo, lalu menyimpannya. Pengaturan lain disimpan di `scripts/.deploy.env` (tidak ikut ke git), jadi run berikutnya langsung jalan tanpa pertanyaan.
+2. Akses image GHCR dicek **sebelum** cluster dibuat. Kalau ditolak, script berhenti dengan penjelasan, dan kredensial yang salah dihapus dari `.deploy.env`.
+3. Cluster `nasduk` dibuat (2–5 menit). Kalau sudah ada, cluster dipakai ulang.
+4. Secret `order-admin` dibuat (dan `ghcr-secret` kalau image private). Token admin dibuat acak sekali, lalu disimpan.
+5. `k8s/` di-apply, lalu script menunggu sampai semua pod jalan dan IP publik muncul. Kalau ada pod yang gagal, status pod dan event langsung ditampilkan.
+6. Script menampilkan URL aplikasi, URL halaman admin, dan token admin.
 
 Pengaturan bisa diubah lewat environment variable atau `scripts/.deploy.env`: `CLUSTER_NAME` (default `nasduk`), `REGION` (default `JKT1`), `NODE_SIZE` (default `g4s.kube.medium`), `NODE_COUNT` (default `1`), `CIVO_API_KEY`, `GHCR_USERNAME`, `GHCR_TOKEN`, `ADMIN_TOKEN`, `GITHUB_REPO`.
 
@@ -41,4 +42,6 @@ Setelah selesai, script menampilkan daftar volume, load balancer, dan firewall y
 
 ## CI/CD
 
-Setiap push ke `main` membangun image ke GHCR dan men-deploy ke cluster yang ada di secret `CIVO_KUBECONFIG` (`.github/workflows/deploy.yml`). Setelah cluster dibuat ulang, secret itu harus diperbarui. `deploy.sh`/`deploy.ps1` melakukannya otomatis kalau `gh` terpasang dan sudah login.
+Setiap push ke `main` membangun image ke GHCR dan men-deploy ke cluster yang ada di secret `CIVO_KUBECONFIG` (`.github/workflows/deploy.yml`). Kalau secret itu kosong (misalnya cluster sudah di-destroy), langkah deploy dilewati dengan peringatan, dan image tetap di-build.
+
+Setelah cluster dibuat ulang, secret itu harus diisi lagi. `deploy.sh`/`deploy.ps1` melakukannya otomatis kalau `gh` terpasang dan sudah login. Tanpa `gh`, isi manual di GitHub > Settings > Secrets and variables > Actions > `CIVO_KUBECONFIG`, dengan isi file `scripts/.kubeconfig-nasduk.b64` (Windows) atau hasil `base64 < scripts/.kubeconfig-nasduk | tr -d '\n'` (Linux).

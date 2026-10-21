@@ -2,6 +2,8 @@
 # Pemakaian: klik dua kali scripts\deploy.cmd, atau jalankan: powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 # Konfigurasi bisa lewat environment variable atau file scripts\.deploy.env (dibuat otomatis saat pertama kali).
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 belum tentu memakai TLS 1.2 (dibutuhkan ghcr.io)
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 $ScriptDir = $PSScriptRoot
 $RootDir = Split-Path $ScriptDir -Parent
@@ -19,6 +21,12 @@ function Test-Native { # true kalau perintah berhasil; output dibuang (aman di W
     $ok = ($LASTEXITCODE -eq 0); $ErrorActionPreference = $old
     return $ok
 }
+function Get-NativeOutput { # stdout perintah eksternal, stderr dibuang; $null kalau gagal
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { $out = & $args[0] @($args | Select-Object -Skip 1) 2> $null } catch { $out = $null }
+    $ok = ($LASTEXITCODE -eq 0); $ErrorActionPreference = $old
+    if ($ok) { return $out } else { return $null }
+}
 function Get-Setting($name, $default = '') {
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { return $value }
@@ -28,6 +36,24 @@ function Get-Setting($name, $default = '') {
 function Save-Setting($name, $value) { # simpan nilai supaya run berikutnya tidak perlu input lagi
     $Settings[$name] = $value
     $Settings.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Set-Content -Path $EnvFile -Encoding ascii
+}
+function Remove-Setting { # hapus nilai yang tersimpan, mis. kredensial yang ditolak
+    foreach ($name in $args) { $Settings.Remove($name) }
+    $Settings.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Set-Content -Path $EnvFile -Encoding ascii
+}
+function Test-GhcrAccess($user, $token) { # true kalau manifest semua image bisa dibaca (user kosong = anonim)
+    $headers = @{}
+    if ($user) { $headers.Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${user}:${token}")) }
+    $accept = 'application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json'
+    foreach ($img in $Images) {
+        try {
+            $res = Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "https://ghcr.io/token?scope=repository:$ImageOwner/${img}:pull&service=ghcr.io"
+            $bearer = ($res.Content | ConvertFrom-Json).token
+            $res = Invoke-WebRequest -UseBasicParsing -Method Head -Headers @{ Authorization = "Bearer $bearer"; Accept = $accept } -Uri "https://ghcr.io/v2/$ImageOwner/$img/manifests/latest"
+            if ($res.StatusCode -ne 200) { return $false }
+        } catch { return $false }
+    }
+    return $true
 }
 function Read-Secret($prompt) {
     $secure = Read-Host $prompt -AsSecureString
@@ -50,6 +76,8 @@ $NodeSize = Get-Setting 'NODE_SIZE' 'g4s.kube.medium'
 $NodeCount = Get-Setting 'NODE_COUNT' '1'
 $Region = Get-Setting 'REGION' 'JKT1'  # Civo region Jakarta, Indonesia
 $GithubRepo = Get-Setting 'GITHUB_REPO' 'dev-cer/apps-nasduk'
+$ImageOwner = $GithubRepo.Split('/')[0]
+$Images = 'apps-nasduk', 'apps-nasduk-order', 'apps-nasduk-frontend'
 $env:KUBECONFIG = Join-Path $ScriptDir ".kubeconfig-$ClusterName"
 
 # 1. Cek tool yang dibutuhkan
@@ -70,10 +98,54 @@ if ($ApiKey) {
     Invoke-Native civo apikey use $ClusterName
 }
 
-# 3. Region
+# 3. Akses image GHCR (dicek sebelum membuat cluster supaya tidak buang waktu & biaya)
+$GhcrUser = Get-Setting 'GHCR_USERNAME'
+$GhcrToken = Get-Setting 'GHCR_TOKEN'
+Info "Mengecek akses image di ghcr.io/$ImageOwner ..."
+if (Test-GhcrAccess '' '') {
+    # Image public: tidak perlu kredensial. Kredensial yang salah justru membuat GHCR menolak pull (403).
+    if ($GhcrUser) {
+        Info 'Image GHCR public, kredensial GHCR tidak dipakai'
+        Remove-Setting 'GHCR_USERNAME' 'GHCR_TOKEN'
+    }
+    $GhcrUser = ''; $GhcrToken = ''
+} else {
+    $GhcrSource = ''
+    if ($GhcrUser) {
+        $GhcrSource = 'config'
+    } elseif ((Get-Command gh -ErrorAction SilentlyContinue) -and (Test-Native gh auth status)) {
+        $GhcrUser = Get-NativeOutput gh api user -q .login
+        $GhcrToken = Get-NativeOutput gh auth token
+        $GhcrSource = 'gh'
+    } else {
+        Write-Host "Image di ghcr.io/$ImageOwner private, butuh token untuk menariknya."
+        $GhcrUser = Read-Host 'Username GitHub'
+        $GhcrToken = Read-Secret 'GitHub token CLASSIC dengan scope read:packages'
+        $GhcrSource = 'prompt'
+    }
+    if (-not $GhcrUser -or -not (Test-GhcrAccess $GhcrUser $GhcrToken)) {
+        Write-Host "ERROR: GHCR menolak akses untuk user '$GhcrUser' (sumber: $GhcrSource)." -ForegroundColor Red
+        Write-Host '   Pilih salah satu:'
+        Write-Host "   a) Jadikan 3 package GHCR public: GitHub > $ImageOwner > Packages > (package) > Package settings > Change visibility"
+        Write-Host '   b) Pakai token CLASSIC (ghp_...) dengan scope read:packages. Token fine-grained (github_pat_...) tidak didukung GHCR.'
+        Write-Host '   c) Beri izin packages ke GitHub CLI: gh auth refresh -h github.com -s read:packages'
+        if ($GhcrSource -eq 'config') {
+            Remove-Setting 'GHCR_USERNAME' 'GHCR_TOKEN'
+            Write-Host '   Kredensial GHCR yang tersimpan sudah dihapus; jalankan ulang script untuk memasukkan yang baru.'
+        }
+        exit 1
+    }
+    if ($GhcrSource -eq 'prompt') {
+        Save-Setting 'GHCR_USERNAME' $GhcrUser
+        Save-Setting 'GHCR_TOKEN' $GhcrToken
+    }
+}
+Info "Akses GHCR OK ($(if ($GhcrUser) { $GhcrUser } else { 'public, tanpa kredensial' }))"
+
+# 4. Region
 Info "Region: $Region | Cluster: $ClusterName | Node: $NodeCount x $NodeSize"
 
-# 4. Buat cluster (dilewati kalau sudah ada)
+# 5. Buat cluster (dilewati kalau sudah ada)
 if (Test-Native civo kubernetes show $ClusterName --region $Region) {
     Info "Cluster '$ClusterName' sudah ada, dipakai ulang"
 } else {
@@ -84,20 +156,12 @@ civo kubernetes config $ClusterName --region $Region | Set-Content -Path $env:KU
 if ($LASTEXITCODE -ne 0) { Fail 'Gagal mengambil kubeconfig' }
 Invoke-Native kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
-# 5. Secret: akses image GHCR dan token admin
-$GhcrUser = Get-Setting 'GHCR_USERNAME' $null
-if ($null -eq $GhcrUser) {
-    $GhcrUser = Read-Host 'Username GitHub untuk GHCR (kosongkan kalau image public)'
-    Save-Setting 'GHCR_USERNAME' $GhcrUser
-}
+# 6. Secret: akses image GHCR dan token admin
 if ($GhcrUser) {
-    $GhcrToken = Get-Setting 'GHCR_TOKEN'
-    if (-not $GhcrToken) {
-        $GhcrToken = Read-Secret 'GitHub token dengan scope read:packages'
-        Save-Setting 'GHCR_TOKEN' $GhcrToken
-    }
     Apply-Yaml (kubectl create secret docker-registry ghcr-secret --docker-server=ghcr.io `
         --docker-username=$GhcrUser --docker-password=$GhcrToken --dry-run=client -o yaml)
+} else {
+    Test-Native kubectl delete secret ghcr-secret --ignore-not-found | Out-Null
 }
 $AdminToken = Get-Setting 'ADMIN_TOKEN'
 if (-not $AdminToken) {
@@ -106,15 +170,22 @@ if (-not $AdminToken) {
 }
 Apply-Yaml (kubectl create secret generic order-admin --from-literal=ADMIN_TOKEN=$AdminToken --dry-run=client -o yaml)
 
-# 6. Jalankan aplikasi
+# 7. Jalankan aplikasi
 Info 'Deploy aplikasi...'
+$Existing = kubectl get deployment -o name
 Invoke-Native kubectl apply -f (Join-Path $RootDir 'k8s')
-Invoke-Native kubectl rollout restart deployment menu-service order-service frontend-service
+# Restart hanya kalau aplikasi sudah pernah jalan (untuk menarik image :latest terbaru)
+if ($Existing) { Invoke-Native kubectl rollout restart deployment menu-service order-service frontend-service }
 foreach ($d in 'menu-service', 'order-service', 'frontend-service') {
-    Invoke-Native kubectl rollout status "deployment/$d" --timeout=600s
+    kubectl rollout status "deployment/$d" --timeout=600s
+    if ($LASTEXITCODE -ne 0) {
+        kubectl get pods -o wide
+        kubectl get events --sort-by=.lastTimestamp | Select-Object -Last 15
+        Fail "Deployment $d belum siap. Lihat status pod dan event di atas."
+    }
 }
 
-# 7. Tunggu IP publik frontend
+# 8. Tunggu IP publik frontend
 Info 'Menunggu IP publik...'
 $Ip = ''
 for ($i = 0; $i -lt 60 -and -not $Ip; $i++) {
@@ -123,7 +194,7 @@ for ($i = 0; $i -lt 60 -and -not $Ip; $i++) {
 }
 if (-not $Ip) { Fail "IP publik belum muncul. Cek dengan: kubectl --kubeconfig $env:KUBECONFIG get svc frontend-service" }
 
-# 8. Perbarui kubeconfig untuk GitHub Actions (supaya push ke main deploy ke cluster baru)
+# 9. Perbarui kubeconfig untuk GitHub Actions (supaya push ke main deploy ke cluster baru)
 $KubeB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($env:KUBECONFIG))
 $ghReady = $false
 if (Get-Command gh -ErrorAction SilentlyContinue) { $ghReady = Test-Native gh auth status }

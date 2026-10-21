@@ -12,6 +12,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # Kosong kalau cluster belum dibuat; deploy dilewati (image tetap di-build)
+      CIVO_KUBECONFIG: ${{ secrets.CIVO_KUBECONFIG }}
 
     steps:
       - name: Checkout Code
@@ -48,13 +51,19 @@ jobs:
           push: true
           tags: ghcr.io/dev-cer/apps-nasduk-frontend:latest
 
+      - name: Skip deploy (no cluster configured)
+        if: env.CIVO_KUBECONFIG == ''
+        run: echo "::warning::Secret CIVO_KUBECONFIG kosong, deploy dilewati. Jalankan scripts/deploy.sh atau scripts\deploy.ps1 untuk membuat cluster dan mengisi secret ini."
+
       - name: Setup Kubeconfig
+        if: env.CIVO_KUBECONFIG != ''
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.CIVO_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          echo "$CIVO_KUBECONFIG" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Deploy to Civo Kubernetes
+        if: env.CIVO_KUBECONFIG != ''
         run: |
           kubectl apply -f k8s/
           kubectl rollout restart deployment menu-service order-service frontend-service
