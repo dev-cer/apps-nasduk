@@ -19,7 +19,7 @@ load_env
 
 CLUSTER_NAME="${CLUSTER_NAME:-nasduk}"
 REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
-DNS_ZONE="${DNS_ZONE-apps.arupa.id}"
+DNS_ZONE="${DNS_ZONE-sslip.io}"
 SUBDOMAIN="${SUBDOMAIN:-nasduk}"
 export KUBECONFIG="$SCRIPT_DIR/.kubeconfig-$CLUSTER_NAME"
 
@@ -44,7 +44,7 @@ if command -v kubectl >/dev/null; then
 fi
 
 # 2. Hapus record DNS supaya subdomain tidak menunjuk ke IP yang nanti dipakai orang lain
-if [ -n "$DNS_ZONE" ]; then
+if [ -n "$DNS_ZONE" ] && [ "$DNS_ZONE" != "sslip.io" ]; then
     civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value' 2>/dev/null \
         | awk -F'|' -v n="$SUBDOMAIN" '$2==n && (toupper($3)=="A" || toupper($3)=="CNAME") {print $1}' \
         | while read -r id; do

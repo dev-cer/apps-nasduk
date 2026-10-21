@@ -23,10 +23,11 @@ REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
 GITHUB_REPO="${GITHUB_REPO:-dev-cer/apps-nasduk}"
 IMAGE_OWNER="${GITHUB_REPO%%/*}"
 IMAGES="apps-nasduk apps-nasduk-order apps-nasduk-frontend"
-DNS_ZONE="${DNS_ZONE-apps.arupa.id}"   # zona DNS di Civo (didelegasikan dari arupa.id); kosongkan untuk HTTP saja
+# DNS_ZONE: "sslip.io" = HTTPS gratis tanpa DNS sendiri (nasduk.<ip>.sslip.io),
+#           zona di DNS Civo (mis. apps.arupa.id, harus didelegasikan ke ns0/ns1.civo.com),
+#           atau kosong = HTTP lewat IP saja.
+DNS_ZONE="${DNS_ZONE-sslip.io}"
 SUBDOMAIN="${SUBDOMAIN:-nasduk}"
-DOMAIN=""
-[ -n "$DNS_ZONE" ] && DOMAIN="$SUBDOMAIN.$DNS_ZONE"
 DEPLOYMENTS="menu-service order-service frontend-service caddy"
 export KUBECONFIG="$SCRIPT_DIR/.kubeconfig-$CLUSTER_NAME"
 
@@ -141,8 +142,6 @@ if [ -z "${ADMIN_TOKEN:-}" ]; then
 fi
 kubectl create secret generic order-admin --from-literal=ADMIN_TOKEN="$ADMIN_TOKEN" \
     --dry-run=client -o yaml | kubectl apply -f -
-# Domain untuk HTTPS (dibaca Caddy)
-kubectl create configmap caddy-env --from-literal=DOMAIN="$DOMAIN" --dry-run=client -o yaml | kubectl apply -f -
 
 # 7. Jalankan aplikasi
 info "Deploy aplikasi..."
@@ -174,9 +173,23 @@ for _ in $(seq 1 60); do
 done
 [ -n "$IP" ] || fail "IP publik belum muncul. Cek dengan: KUBECONFIG=$KUBECONFIG kubectl get svc caddy"
 
-# 9. DNS + HTTPS: arahkan $DOMAIN ke IP load balancer (record A di DNS Civo)
+# 9. Domain + HTTPS (Caddy mengambil sertifikat Let's Encrypt untuk $DOMAIN)
+DOMAIN=""
+if [ "$DNS_ZONE" = "sslip.io" ]; then
+    DOMAIN="$SUBDOMAIN.${IP//./-}.sslip.io"   # sslip.io otomatis mengarahkan nama ini ke $IP
+elif [ -n "$DNS_ZONE" ]; then
+    DOMAIN="$SUBDOMAIN.$DNS_ZONE"
+fi
+if [ "$(kubectl get configmap caddy-env -o jsonpath='{.data.DOMAIN}' 2>/dev/null || true)" != "$DOMAIN" ] \
+    || ! kubectl get configmap caddy-env >/dev/null 2>&1; then
+    kubectl create configmap caddy-env --from-literal=DOMAIN="$DOMAIN" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl rollout restart deployment caddy
+    kubectl rollout status deployment caddy --timeout=300s || fail "Caddy belum siap: kubectl logs deploy/caddy"
+fi
+
 URL="http://$IP"
-if [ -n "$DOMAIN" ]; then
+DNS_READY=1
+if [ -n "$DOMAIN" ] && [ "$DNS_ZONE" != "sslip.io" ]; then
     info "Mengarahkan $DOMAIN ke $IP ..."
     # Buat zona di DNS Civo kalau belum ada
     if ! civo domain ls -o custom -f name 2>/dev/null | grep -qx "$DNS_ZONE"; then
@@ -184,14 +197,13 @@ if [ -n "$DOMAIN" ]; then
         info "Zona $DNS_ZONE dibuat di DNS Civo"
     fi
     # Zona Civo hanya berlaku kalau subdomain ini didelegasikan ke nameserver Civo
-    DELEGATED=1
     if ! curl -s -m 10 "https://dns.google/resolve?name=$DNS_ZONE&type=NS" | grep -qi 'civo\.com'; then
-        DELEGATED=0
+        DNS_READY=0
         printf '\033[1;31mPERHATIAN: %s belum didelegasikan ke DNS Civo, HTTPS belum bisa aktif.\033[0m\n' "$DNS_ZONE"
         echo "   Di panel DNS yang mengelola ${DNS_ZONE#*.} (nameserver saat ini), tambahkan 2 record NS:"
         echo "     Name: ${DNS_ZONE%%.*}   Type: NS   Value: ns0.civo.com"
         echo "     Name: ${DNS_ZONE%%.*}   Type: NS   Value: ns1.civo.com"
-        echo "   Setelah itu tidak perlu jalankan ulang; Caddy mencoba sendiri setiap beberapa menit."
+        echo "   Tanpa akses DNS itu: pakai DNS_ZONE=sslip.io (HTTPS gratis, tanpa DNS sendiri)."
     fi
     # Daftar kosong: civo tidak mencetak apa pun dan tetap exit 0. Tipe record bisa huruf kecil ("a").
     if ! records="$(civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value' 2>"$ENV_FILE.err")"; then
@@ -204,15 +216,16 @@ if [ -n "$DOMAIN" ]; then
             | while read -r id; do civo domain record remove "$DNS_ZONE" "$id" -y >/dev/null; done
         civo domain record create "$DNS_ZONE" --name "$SUBDOMAIN" --type A --value "$IP" --ttl 600 >/dev/null
     fi
-    [ "$DELEGATED" = 1 ] && info "Menunggu DNS dan sertifikat HTTPS (biasanya 1-5 menit)..."
-    for _ in $(seq 1 $((DELEGATED * 60))); do
+fi
+if [ -n "$DOMAIN" ]; then
+    [ "$DNS_READY" = 1 ] && info "Menunggu sertifikat HTTPS untuk $DOMAIN (biasanya 1-5 menit)..."
+    for _ in $(seq 1 $((DNS_READY * 60))); do
         if curl -sf -o /dev/null -m 10 "https://$DOMAIN/"; then URL="https://$DOMAIN"; break; fi
         sleep 10
     done
     if [ "$URL" != "https://$DOMAIN" ]; then
         info "HTTPS untuk $DOMAIN belum aktif. Caddy akan terus mencoba otomatis; cek lagi beberapa menit lagi."
-        echo "   Kalau tetap tidak bisa: pastikan record NS ${DNS_ZONE%%.*} -> ns0.civo.com dan ns1.civo.com sudah ada di DNS ${DNS_ZONE#*.},"
-        echo "   lalu lihat log: kubectl --kubeconfig $KUBECONFIG logs deploy/caddy"
+        echo "   Log: kubectl --kubeconfig $KUBECONFIG logs deploy/caddy"
         URL="https://$DOMAIN"
     fi
 fi

@@ -86,9 +86,11 @@ $Region = Get-Setting 'REGION' 'JKT1'  # Civo region Jakarta, Indonesia
 $GithubRepo = Get-Setting 'GITHUB_REPO' 'dev-cer/apps-nasduk'
 $ImageOwner = $GithubRepo.Split('/')[0]
 $Images = 'apps-nasduk', 'apps-nasduk-order', 'apps-nasduk-frontend'
-$DnsZone = Get-Setting 'DNS_ZONE' 'apps.arupa.id'   # zona DNS di Civo (didelegasikan dari arupa.id); kosongkan untuk HTTP saja
+# DNS_ZONE: 'sslip.io' = HTTPS gratis tanpa DNS sendiri (nasduk.<ip>.sslip.io),
+#           zona di DNS Civo (mis. apps.arupa.id, harus didelegasikan ke ns0/ns1.civo.com),
+#           atau kosong = HTTP lewat IP saja.
+$DnsZone = Get-Setting 'DNS_ZONE' 'sslip.io'
 $Subdomain = Get-Setting 'SUBDOMAIN' 'nasduk'
-$Domain = if ($DnsZone) { "$Subdomain.$DnsZone" } else { '' }
 $Deployments = 'menu-service', 'order-service', 'frontend-service', 'caddy'
 $env:KUBECONFIG = Join-Path $ScriptDir ".kubeconfig-$ClusterName"
 
@@ -181,8 +183,6 @@ if (-not $AdminToken) {
     Save-Setting 'ADMIN_TOKEN' $AdminToken
 }
 Apply-Yaml (kubectl create secret generic order-admin --from-literal=ADMIN_TOKEN=$AdminToken --dry-run=client -o yaml)
-# Domain untuk HTTPS (dibaca Caddy)
-Apply-Yaml (kubectl create configmap caddy-env --from-literal=DOMAIN=$Domain --dry-run=client -o yaml)
 
 # 7. Jalankan aplikasi
 Info 'Deploy aplikasi...'
@@ -212,9 +212,24 @@ for ($i = 0; $i -lt 60 -and -not $Ip; $i++) {
 }
 if (-not $Ip) { Fail "IP publik belum muncul. Cek dengan: kubectl --kubeconfig $env:KUBECONFIG get svc caddy" }
 
-# 9. DNS + HTTPS: arahkan $Domain ke IP load balancer (record A di DNS Civo)
+# 9. Domain + HTTPS (Caddy mengambil sertifikat Let's Encrypt untuk $Domain)
+$Domain = ''
+if ($DnsZone -eq 'sslip.io') {
+    $Domain = "$Subdomain.$($Ip.Replace('.', '-')).sslip.io"   # sslip.io otomatis mengarahkan nama ini ke $Ip
+} elseif ($DnsZone) {
+    $Domain = "$Subdomain.$DnsZone"
+}
+$current = Invoke-NativeCapture kubectl get configmap caddy-env -o jsonpath='{.data.DOMAIN}'
+if (-not $current.Ok -or "$($current.Out)" -ne $Domain) {
+    Apply-Yaml (kubectl create configmap caddy-env --from-literal=DOMAIN=$Domain --dry-run=client -o yaml)
+    Invoke-Native kubectl rollout restart deployment caddy
+    kubectl rollout status deployment caddy --timeout=300s
+    if ($LASTEXITCODE -ne 0) { Fail 'Caddy belum siap: kubectl logs deploy/caddy' }
+}
+
 $Url = "http://$Ip"
-if ($Domain) {
+$dnsReady = $true
+if ($Domain -and $DnsZone -ne 'sslip.io') {
     Info "Mengarahkan $Domain ke $Ip ..."
     # Buat zona di DNS Civo kalau belum ada
     $zones = Invoke-NativeCapture civo domain ls -o custom -f name
@@ -223,15 +238,15 @@ if ($Domain) {
         Info "Zona $DnsZone dibuat di DNS Civo"
     }
     # Zona Civo hanya berlaku kalau subdomain ini didelegasikan ke nameserver Civo
-    $delegated = $false
-    try { $delegated = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "https://dns.google/resolve?name=$DnsZone&type=NS").Content -match 'civo\.com' } catch {}
-    if (-not $delegated) {
+    $dnsReady = $false
+    try { $dnsReady = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "https://dns.google/resolve?name=$DnsZone&type=NS").Content -match 'civo\.com' } catch {}
+    if (-not $dnsReady) {
         $label = $DnsZone.Split('.')[0]; $parent = $DnsZone.Substring($label.Length + 1)
         Write-Host "PERHATIAN: $DnsZone belum didelegasikan ke DNS Civo, HTTPS belum bisa aktif." -ForegroundColor Red
         Write-Host "   Di panel DNS yang mengelola $parent (nameserver saat ini), tambahkan 2 record NS:"
         Write-Host "     Name: $label   Type: NS   Value: ns0.civo.com"
         Write-Host "     Name: $label   Type: NS   Value: ns1.civo.com"
-        Write-Host '   Setelah itu tidak perlu jalankan ulang; Caddy mencoba sendiri setiap beberapa menit.'
+        Write-Host '   Tanpa akses DNS itu: pakai DNS_ZONE=sslip.io (HTTPS gratis, tanpa DNS sendiri).'
     }
     # Daftar kosong: civo tidak mencetak apa pun dan tetap exit 0. Tipe record bisa huruf kecil ("a").
     $res = Invoke-NativeCapture civo domain record ls $DnsZone -o json
@@ -242,8 +257,10 @@ if ($Domain) {
         foreach ($r in $records) { Invoke-Native civo domain record remove $DnsZone $r.id -y }
         Invoke-Native civo domain record create $DnsZone --name $Subdomain --type A --value $Ip --ttl 600
     }
-    if ($delegated) { Info 'Menunggu DNS dan sertifikat HTTPS (biasanya 1-5 menit)...' }
-    for ($i = 0; $delegated -and $i -lt 60; $i++) {
+}
+if ($Domain) {
+    if ($dnsReady) { Info "Menunggu sertifikat HTTPS untuk $Domain (biasanya 1-5 menit)..." }
+    for ($i = 0; $dnsReady -and $i -lt 60; $i++) {
         try {
             Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "https://$Domain/" | Out-Null
             $Url = "https://$Domain"; break
@@ -251,8 +268,7 @@ if ($Domain) {
     }
     if ($Url -ne "https://$Domain") {
         Info "HTTPS untuk $Domain belum aktif. Caddy akan terus mencoba otomatis; cek lagi beberapa menit lagi."
-        Write-Host "   Kalau tetap tidak bisa: pastikan record NS $($DnsZone.Split('.')[0]) -> ns0.civo.com dan ns1.civo.com sudah ada di DNS $($DnsZone.Substring($DnsZone.IndexOf('.') + 1)),"
-        Write-Host "   lalu lihat log: kubectl --kubeconfig $env:KUBECONFIG logs deploy/caddy"
+        Write-Host "   Log: kubectl --kubeconfig $env:KUBECONFIG logs deploy/caddy"
         $Url = "https://$Domain"
     }
 }
