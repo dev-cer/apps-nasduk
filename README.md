@@ -4,7 +4,7 @@ Aplikasi pemesanan nasi uduk: **frontend** (nginx), **menu-service** dan **order
 
 ## Deploy 1-klik
 
-Script di folder `scripts/` membuat cluster Civo (**region Jakarta, 1 node `g4s.kube.medium`**), lalu menjalankan seluruh aplikasi. Script destroy menghapus semuanya lagi.
+Script di folder `scripts/` membuat cluster Civo (**region Jakarta `JKT1`, 1 node `g4s.kube.medium`**), lalu menjalankan seluruh aplikasi. Script destroy menghapus semuanya lagi.
 
 | | Linux | Windows |
 |---|---|---|
@@ -24,13 +24,12 @@ Script di folder `scripts/` membuat cluster Civo (**region Jakarta, 1 node `g4s.
 ### Yang terjadi saat deploy
 
 1. Run pertama menanyakan API key Civo, username GitHub, dan token GHCR. Jawabannya disimpan di `scripts/.deploy.env` (tidak ikut ke git), jadi run berikutnya langsung jalan tanpa pertanyaan.
-2. Kode region Jakarta dicari otomatis dari `civo region ls`. Kalau tidak ketemu, isi `REGION=<kode>` di `scripts/.deploy.env`.
-3. Cluster `nasduk` dibuat (2–5 menit). Kalau sudah ada, cluster dipakai ulang.
-4. Secret `ghcr-secret` dan `order-admin` dibuat. Token admin dibuat acak sekali, lalu disimpan.
-5. `k8s/` di-apply, lalu script menunggu sampai semua pod jalan dan IP publik muncul.
-6. Script menampilkan URL aplikasi, URL halaman admin, dan token admin.
+2. Cluster `nasduk` dibuat (2–5 menit). Kalau sudah ada, cluster dipakai ulang.
+3. Secret `ghcr-secret` dan `order-admin` dibuat. Token admin dibuat acak sekali, lalu disimpan.
+4. `k8s/` di-apply, lalu script menunggu sampai semua pod jalan dan IP publik muncul.
+5. Script menampilkan URL aplikasi, URL halaman admin, dan token admin.
 
-Pengaturan bisa diubah lewat environment variable atau `scripts/.deploy.env`: `CLUSTER_NAME` (default `nasduk`), `REGION`, `NODE_SIZE` (default `g4s.kube.medium`), `NODE_COUNT` (default `1`), `CIVO_API_KEY`, `GHCR_USERNAME`, `GHCR_TOKEN`, `ADMIN_TOKEN`, `GITHUB_REPO`.
+Pengaturan bisa diubah lewat environment variable atau `scripts/.deploy.env`: `CLUSTER_NAME` (default `nasduk`), `REGION` (default `JKT1`), `NODE_SIZE` (default `g4s.kube.medium`), `NODE_COUNT` (default `1`), `CIVO_API_KEY`, `GHCR_USERNAME`, `GHCR_TOKEN`, `ADMIN_TOKEN`, `GITHUB_REPO`.
 
 ### Destroy
 

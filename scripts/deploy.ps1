@@ -48,7 +48,7 @@ if (Test-Path $EnvFile) {
 $ClusterName = Get-Setting 'CLUSTER_NAME' 'nasduk'
 $NodeSize = Get-Setting 'NODE_SIZE' 'g4s.kube.medium'
 $NodeCount = Get-Setting 'NODE_COUNT' '1'
-$Region = Get-Setting 'REGION'
+$Region = Get-Setting 'REGION' 'JKT1'  # Civo region Jakarta, Indonesia
 $GithubRepo = Get-Setting 'GITHUB_REPO' 'dev-cer/apps-nasduk'
 $env:KUBECONFIG = Join-Path $ScriptDir ".kubeconfig-$ClusterName"
 
@@ -70,18 +70,7 @@ if ($ApiKey) {
     Invoke-Native civo apikey use $ClusterName
 }
 
-# 3. Region Jakarta (kode region dicari otomatis dari daftar region Civo)
-if (-not $Region) {
-    $regions = civo region ls -o json | ConvertFrom-Json
-    $match = $regions | Where-Object { ($_.PSObject.Properties.Value -join ' ') -match '(?i)jakarta|indonesia|jkt' } | Select-Object -First 1
-    if (-not $match) {
-        civo region ls
-        Fail 'Region Jakarta tidak ditemukan. Isi REGION=<kode> di scripts\.deploy.env lalu jalankan ulang.'
-    }
-    $Region = $match.PSObject.Properties.Value | Where-Object { "$_" -cmatch '^[A-Z]{2,}[0-9]+$' } | Select-Object -First 1
-    if (-not $Region) { Fail 'Kode region Jakarta tidak terbaca. Isi REGION=<kode> di scripts\.deploy.env lalu jalankan ulang.' }
-    Save-Setting 'REGION' $Region
-}
+# 3. Region
 Info "Region: $Region | Cluster: $ClusterName | Node: $NodeCount x $NodeSize"
 
 # 4. Buat cluster (dilewati kalau sudah ada)

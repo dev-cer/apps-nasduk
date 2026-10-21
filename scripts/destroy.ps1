@@ -31,11 +31,10 @@ function Get-Setting($name, $default = '') {
 }
 
 $ClusterName = Get-Setting 'CLUSTER_NAME' 'nasduk'
-$Region = Get-Setting 'REGION'
+$Region = Get-Setting 'REGION' 'JKT1'  # Civo region Jakarta, Indonesia
 $env:KUBECONFIG = Join-Path $ScriptDir ".kubeconfig-$ClusterName"
 
 if (-not (Get-Command civo -ErrorAction SilentlyContinue)) { Fail "'civo' belum terpasang" }
-if (-not $Region) { Fail 'REGION belum diketahui. Isi REGION=<kode> di scripts\.deploy.env' }
 if (-not (Test-Native civo kubernetes show $ClusterName --region $Region)) { Fail "Cluster '$ClusterName' tidak ditemukan di region $Region" }
 
 if (-not $Yes) {

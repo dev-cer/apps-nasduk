@@ -19,7 +19,7 @@ load_env
 CLUSTER_NAME="${CLUSTER_NAME:-nasduk}"
 NODE_SIZE="${NODE_SIZE:-g4s.kube.medium}"
 NODE_COUNT="${NODE_COUNT:-1}"
-REGION="${REGION:-}"
+REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
 GITHUB_REPO="${GITHUB_REPO:-dev-cer/apps-nasduk}"
 export KUBECONFIG="$SCRIPT_DIR/.kubeconfig-$CLUSTER_NAME"
 
@@ -48,15 +48,7 @@ elif ! civo kubernetes ls >/dev/null 2>&1; then
     civo apikey use "$CLUSTER_NAME" >/dev/null
 fi
 
-# 3. Region Jakarta (kode region dicari otomatis dari daftar region Civo)
-if [ -z "$REGION" ]; then
-    REGION="$(civo region ls 2>/dev/null | grep -iE 'jakarta|indonesia|jkt' | grep -oE '\b[A-Z]{2,}[0-9]+\b' | head -n1 || true)"
-    if [ -z "$REGION" ]; then
-        civo region ls || true
-        fail "Region Jakarta tidak ditemukan. Jalankan ulang dengan REGION=<kode> ./scripts/deploy.sh"
-    fi
-    save_env REGION "$REGION"
-fi
+# 3. Region
 info "Region: $REGION | Cluster: $CLUSTER_NAME | Node: $NODE_COUNT x $NODE_SIZE"
 
 # 4. Buat cluster (dilewati kalau sudah ada)
