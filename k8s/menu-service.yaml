@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: menu-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: menu-service
+  template:
+    metadata:
+      labels:
+        app: menu-service
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: menu-service
+        image: ghcr.io/dev-cer/apps-nasduk:latest
+        ports:
+        - containerPort: 8000
