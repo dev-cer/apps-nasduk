@@ -1,9 +1,10 @@
-﻿name: Build to GHCR & Deploy to Civo
+name: Build to GHCR & Deploy to Civo
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
