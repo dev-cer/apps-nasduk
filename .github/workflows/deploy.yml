@@ -65,5 +65,11 @@ jobs:
       - name: Deploy to Civo Kubernetes
         if: env.CIVO_KUBECONFIG != ''
         run: |
+          # Versi lama membuka frontend/menu lewat LoadBalancer; sekarang publik hanya lewat caddy
+          for svc in frontend-service menu-service; do
+            if [ "$(kubectl get svc "$svc" -o jsonpath='{.spec.type}' 2>/dev/null)" = "LoadBalancer" ]; then
+              kubectl delete svc "$svc"
+            fi
+          done
           kubectl apply -f k8s/
           kubectl rollout restart deployment menu-service order-service frontend-service

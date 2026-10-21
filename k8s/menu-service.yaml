@@ -26,7 +26,7 @@ kind: Service
 metadata:
   name: menu-service
 spec:
-  type: LoadBalancer
+  type: ClusterIP  # hanya diakses frontend di dalam cluster
   selector:
     app: menu-service
   ports:
