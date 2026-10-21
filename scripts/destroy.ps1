@@ -17,14 +17,16 @@ function Test-Native { # true kalau perintah berhasil; output dibuang (aman di W
     return $ok
 }
 
-$Settings = @{}
+$Settings = [ordered]@{}
 if (Test-Path $EnvFile) {
-    Get-Content $EnvFile | Where-Object { $_ -match '^([A-Z_][A-Z0-9_]*)=(.*)$' } | ForEach-Object { $Settings[$Matches[1]] = $Matches[2] }
+    foreach ($line in Get-Content $EnvFile) {
+        if ($line -match '^([A-Z_][A-Z0-9_]*)=(.*)$') { $Settings[$Matches[1]] = $Matches[2] }
+    }
 }
 function Get-Setting($name, $default = '') {
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { return $value }
-    if ($Settings.ContainsKey($name)) { return $Settings[$name] }
+    if ($Settings.Contains($name)) { return $Settings[$name] }
     return $default
 }
 

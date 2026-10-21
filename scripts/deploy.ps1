@@ -22,7 +22,7 @@ function Test-Native { # true kalau perintah berhasil; output dibuang (aman di W
 function Get-Setting($name, $default = '') {
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { return $value }
-    if ($Settings.ContainsKey($name)) { return $Settings[$name] }
+    if ($Settings.Contains($name)) { return $Settings[$name] }
     return $default
 }
 function Save-Setting($name, $value) { # simpan nilai supaya run berikutnya tidak perlu input lagi
@@ -31,7 +31,7 @@ function Save-Setting($name, $value) { # simpan nilai supaya run berikutnya tida
 }
 function Read-Secret($prompt) {
     $secure = Read-Host $prompt -AsSecureString
-    return [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+    return (New-Object System.Net.NetworkCredential('', $secure)).Password
 }
 function Apply-Yaml($yaml) {
     $yaml | kubectl apply -f -
@@ -40,7 +40,9 @@ function Apply-Yaml($yaml) {
 
 $Settings = [ordered]@{}
 if (Test-Path $EnvFile) {
-    Get-Content $EnvFile | Where-Object { $_ -match '^([A-Z_][A-Z0-9_]*)=(.*)$' } | ForEach-Object { $Settings[$Matches[1]] = $Matches[2] }
+    foreach ($line in Get-Content $EnvFile) {
+        if ($line -match '^([A-Z_][A-Z0-9_]*)=(.*)$') { $Settings[$Matches[1]] = $Matches[2] }
+    }
 }
 
 $ClusterName = Get-Setting 'CLUSTER_NAME' 'nasduk'
