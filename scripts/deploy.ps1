@@ -27,6 +27,14 @@ function Get-NativeOutput { # stdout perintah eksternal, stderr dibuang; $null k
     $ok = ($LASTEXITCODE -eq 0); $ErrorActionPreference = $old
     if ($ok) { return $out } else { return $null }
 }
+function Invoke-NativeCapture { # jalankan perintah eksternal; hasil: Ok, Out (stdout), Err (stderr)
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    $errFile = [IO.Path]::GetTempFileName()
+    try { $out = & $args[0] @($args | Select-Object -Skip 1) 2> $errFile } catch { $out = $null }
+    $ok = ($LASTEXITCODE -eq 0); $ErrorActionPreference = $old
+    $err = (Get-Content $errFile -Raw); Remove-Item $errFile -ErrorAction SilentlyContinue
+    return [pscustomobject]@{ Ok = $ok; Out = $out; Err = $err }
+}
 function Get-Setting($name, $default = '') {
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { return $value }
@@ -208,9 +216,11 @@ if (-not $Ip) { Fail "IP publik belum muncul. Cek dengan: kubectl --kubeconfig $
 $Url = "http://$Ip"
 if ($Domain) {
     Info "Mengarahkan $Domain ke $Ip ..."
-    $json = Get-NativeOutput civo domain record ls $DnsZone -o json
-    if ($null -eq $json) { Fail "Domain $DnsZone tidak ditemukan di DNS Civo (Dashboard > Networking > DNS)" }
-    $records = @(($json -join "`n") | ConvertFrom-Json) | Where-Object { $_.name -eq $Subdomain -and $_.type -in 'A', 'CNAME' }
+    # Daftar kosong: civo tidak mencetak apa pun dan tetap exit 0. Tipe record bisa huruf kecil ("a").
+    $res = Invoke-NativeCapture civo domain record ls $DnsZone -o json
+    if (-not $res.Ok) { Write-Host $res.Err; Fail "Gagal membaca record DNS $DnsZone dari Civo (lihat pesan di atas)" }
+    $records = @()
+    if ($res.Out) { $records = @(($res.Out -join "`n") | ConvertFrom-Json) | Where-Object { $_.name -eq $Subdomain -and $_.type -in 'A', 'CNAME' } }
     if (-not ($records | Where-Object { $_.type -eq 'A' -and $_.value -eq $Ip })) {
         foreach ($r in $records) { Invoke-Native civo domain record remove $DnsZone $r.id -y }
         Invoke-Native civo domain record create $DnsZone --name $Subdomain --type A --value $Ip --ttl 600

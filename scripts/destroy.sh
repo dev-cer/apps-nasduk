@@ -46,7 +46,7 @@ fi
 # 2. Hapus record DNS supaya subdomain tidak menunjuk ke IP yang nanti dipakai orang lain
 if [ -n "$DNS_ZONE" ]; then
     civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value' 2>/dev/null \
-        | awk -F'|' -v n="$SUBDOMAIN" '$2==n && ($3=="A" || $3=="CNAME") {print $1}' \
+        | awk -F'|' -v n="$SUBDOMAIN" '$2==n && (toupper($3)=="A" || toupper($3)=="CNAME") {print $1}' \
         | while read -r id; do
             civo domain record remove "$DNS_ZONE" "$id" -y >/dev/null && info "Record DNS $SUBDOMAIN.$DNS_ZONE dihapus"
         done || true

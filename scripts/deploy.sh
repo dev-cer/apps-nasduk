@@ -178,10 +178,14 @@ done
 URL="http://$IP"
 if [ -n "$DOMAIN" ]; then
     info "Mengarahkan $DOMAIN ke $IP ..."
-    records="$(civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value')" \
-        || fail "Domain $DNS_ZONE tidak ditemukan di DNS Civo (Dashboard > Networking > DNS)"
-    if ! printf '%s\n' "$records" | awk -F'|' -v n="$SUBDOMAIN" -v ip="$IP" '$2==n && $3=="A" && $4==ip {f=1} END {exit !f}'; then
-        printf '%s\n' "$records" | awk -F'|' -v n="$SUBDOMAIN" '$2==n && ($3=="A" || $3=="CNAME") {print $1}' \
+    # Daftar kosong: civo tidak mencetak apa pun dan tetap exit 0. Tipe record bisa huruf kecil ("a").
+    if ! records="$(civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value' 2>"$ENV_FILE.err")"; then
+        cat "$ENV_FILE.err" >&2; rm -f "$ENV_FILE.err"
+        fail "Gagal membaca record DNS $DNS_ZONE dari Civo (lihat pesan di atas)"
+    fi
+    rm -f "$ENV_FILE.err"
+    if ! printf '%s\n' "$records" | awk -F'|' -v n="$SUBDOMAIN" -v ip="$IP" '$2==n && toupper($3)=="A" && $4==ip {f=1} END {exit !f}'; then
+        printf '%s\n' "$records" | awk -F'|' -v n="$SUBDOMAIN" '$2==n && (toupper($3)=="A" || toupper($3)=="CNAME") {print $1}' \
             | while read -r id; do civo domain record remove "$DNS_ZONE" "$id" -y >/dev/null; done
         civo domain record create "$DNS_ZONE" --name "$SUBDOMAIN" --type A --value "$IP" --ttl 600 >/dev/null
     fi
