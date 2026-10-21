@@ -23,6 +23,11 @@ REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
 GITHUB_REPO="${GITHUB_REPO:-dev-cer/apps-nasduk}"
 IMAGE_OWNER="${GITHUB_REPO%%/*}"
 IMAGES="apps-nasduk apps-nasduk-order apps-nasduk-frontend"
+DNS_ZONE="${DNS_ZONE-arupa.id}"   # domain yang dikelola di DNS Civo; kosongkan untuk HTTP saja (tanpa domain)
+SUBDOMAIN="${SUBDOMAIN:-nasduk}"
+DOMAIN=""
+[ -n "$DNS_ZONE" ] && DOMAIN="$SUBDOMAIN.$DNS_ZONE"
+DEPLOYMENTS="menu-service order-service frontend-service caddy"
 export KUBECONFIG="$SCRIPT_DIR/.kubeconfig-$CLUSTER_NAME"
 
 info() { printf '\033[1;33m==> %s\033[0m\n' "$*"; }
@@ -136,14 +141,22 @@ if [ -z "${ADMIN_TOKEN:-}" ]; then
 fi
 kubectl create secret generic order-admin --from-literal=ADMIN_TOKEN="$ADMIN_TOKEN" \
     --dry-run=client -o yaml | kubectl apply -f -
+# Domain untuk HTTPS (dibaca Caddy)
+kubectl create configmap caddy-env --from-literal=DOMAIN="$DOMAIN" --dry-run=client -o yaml | kubectl apply -f -
 
 # 7. Jalankan aplikasi
 info "Deploy aplikasi..."
 EXISTING="$(kubectl get deployment -o name 2>/dev/null || true)"
+# Versi lama membuka frontend/menu langsung lewat LoadBalancer; sekarang publik hanya lewat caddy
+for svc in frontend-service menu-service; do
+    if [ "$(kubectl get svc "$svc" -o jsonpath='{.spec.type}' 2>/dev/null || true)" = "LoadBalancer" ]; then
+        kubectl delete svc "$svc"
+    fi
+done
 kubectl apply -f "$ROOT_DIR/k8s/"
-# Restart hanya kalau aplikasi sudah pernah jalan (untuk menarik image :latest terbaru)
-[ -n "$EXISTING" ] && kubectl rollout restart deployment menu-service order-service frontend-service
-for d in menu-service order-service frontend-service; do
+# Restart hanya kalau aplikasi sudah pernah jalan (untuk menarik image :latest terbaru dan domain baru)
+[ -n "$EXISTING" ] && kubectl rollout restart deployment $DEPLOYMENTS
+for d in $DEPLOYMENTS; do
     if ! kubectl rollout status "deployment/$d" --timeout=600s; then
         kubectl get pods -o wide || true
         kubectl get events --sort-by=.lastTimestamp | tail -n 15 || true
@@ -151,17 +164,41 @@ for d in menu-service order-service frontend-service; do
     fi
 done
 
-# 8. Tunggu IP publik frontend
+# 8. Tunggu IP publik
 info "Menunggu IP publik..."
 IP=""
 for _ in $(seq 1 60); do
-    IP="$(kubectl get svc frontend-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    IP="$(kubectl get svc caddy -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
     [ -n "$IP" ] && break
     sleep 5
 done
-[ -n "$IP" ] || fail "IP publik belum muncul. Cek dengan: KUBECONFIG=$KUBECONFIG kubectl get svc frontend-service"
+[ -n "$IP" ] || fail "IP publik belum muncul. Cek dengan: KUBECONFIG=$KUBECONFIG kubectl get svc caddy"
 
-# 9. Perbarui kubeconfig untuk GitHub Actions (supaya push ke main deploy ke cluster baru)
+# 9. DNS + HTTPS: arahkan $DOMAIN ke IP load balancer (record A di DNS Civo)
+URL="http://$IP"
+if [ -n "$DOMAIN" ]; then
+    info "Mengarahkan $DOMAIN ke $IP ..."
+    records="$(civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value')" \
+        || fail "Domain $DNS_ZONE tidak ditemukan di DNS Civo (Dashboard > Networking > DNS)"
+    if ! printf '%s\n' "$records" | awk -F'|' -v n="$SUBDOMAIN" -v ip="$IP" '$2==n && $3=="A" && $4==ip {f=1} END {exit !f}'; then
+        printf '%s\n' "$records" | awk -F'|' -v n="$SUBDOMAIN" '$2==n && ($3=="A" || $3=="CNAME") {print $1}' \
+            | while read -r id; do civo domain record remove "$DNS_ZONE" "$id" -y >/dev/null; done
+        civo domain record create "$DNS_ZONE" --name "$SUBDOMAIN" --type A --value "$IP" --ttl 600 >/dev/null
+    fi
+    info "Menunggu DNS dan sertifikat HTTPS (biasanya 1-5 menit)..."
+    for _ in $(seq 1 60); do
+        if curl -sf -o /dev/null -m 10 "https://$DOMAIN/"; then URL="https://$DOMAIN"; break; fi
+        sleep 10
+    done
+    if [ "$URL" != "https://$DOMAIN" ]; then
+        info "HTTPS untuk $DOMAIN belum aktif. Caddy akan terus mencoba otomatis; cek lagi beberapa menit lagi."
+        echo "   Kalau tetap tidak bisa: pastikan nameserver $DNS_ZONE di registrar adalah ns0.civo.com dan ns1.civo.com,"
+        echo "   lalu lihat log: kubectl --kubeconfig $KUBECONFIG logs deploy/caddy"
+        URL="https://$DOMAIN"
+    fi
+fi
+
+# 10. Perbarui kubeconfig untuk GitHub Actions (supaya push ke main deploy ke cluster baru)
 if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
     base64 < "$KUBECONFIG" | tr -d '\n' | gh secret set CIVO_KUBECONFIG -R "$GITHUB_REPO" \
         && info "Secret CIVO_KUBECONFIG di GitHub sudah diperbarui"
@@ -172,7 +209,8 @@ fi
 
 echo
 info "SELESAI!"
-echo "   Aplikasi     : http://$IP"
-echo "   Halaman admin: http://$IP/admin.html"
+echo "   Aplikasi     : $URL"
+echo "   Halaman admin: $URL/admin.html"
+echo "   IP publik    : $IP"
 echo "   Token admin  : $ADMIN_TOKEN"
 echo "   Kubeconfig   : $KUBECONFIG"

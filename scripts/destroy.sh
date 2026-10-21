@@ -19,6 +19,8 @@ load_env
 
 CLUSTER_NAME="${CLUSTER_NAME:-nasduk}"
 REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
+DNS_ZONE="${DNS_ZONE-arupa.id}"
+SUBDOMAIN="${SUBDOMAIN:-nasduk}"
 export KUBECONFIG="$SCRIPT_DIR/.kubeconfig-$CLUSTER_NAME"
 
 info() { printf '\033[1;33m==> %s\033[0m\n' "$*"; }
@@ -41,11 +43,20 @@ if command -v kubectl >/dev/null; then
     kubectl delete -f "$ROOT_DIR/k8s/" --ignore-not-found --wait=true --timeout=300s || true
 fi
 
-# 2. Hapus cluster
+# 2. Hapus record DNS supaya subdomain tidak menunjuk ke IP yang nanti dipakai orang lain
+if [ -n "$DNS_ZONE" ]; then
+    civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value' 2>/dev/null \
+        | awk -F'|' -v n="$SUBDOMAIN" '$2==n && ($3=="A" || $3=="CNAME") {print $1}' \
+        | while read -r id; do
+            civo domain record remove "$DNS_ZONE" "$id" -y >/dev/null && info "Record DNS $SUBDOMAIN.$DNS_ZONE dihapus"
+        done || true
+fi
+
+# 3. Hapus cluster
 info "Menghapus cluster '$CLUSTER_NAME'..."
 civo kubernetes remove "$CLUSTER_NAME" --region "$REGION" -y
 
-# 3. Bersihkan file lokal
+# 4. Bersihkan file lokal
 rm -f "$KUBECONFIG"
 
 info "SELESAI. Cek sisa resource yang mungkin masih ditagih:"

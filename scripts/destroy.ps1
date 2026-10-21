@@ -32,6 +32,8 @@ function Get-Setting($name, $default = '') {
 
 $ClusterName = Get-Setting 'CLUSTER_NAME' 'nasduk'
 $Region = Get-Setting 'REGION' 'JKT1'  # Civo region Jakarta, Indonesia
+$DnsZone = Get-Setting 'DNS_ZONE' 'arupa.id'
+$Subdomain = Get-Setting 'SUBDOMAIN' 'nasduk'
 $env:KUBECONFIG = Join-Path $ScriptDir ".kubeconfig-$ClusterName"
 
 if (-not (Get-Command civo -ErrorAction SilentlyContinue)) { Fail "'civo' belum terpasang" }
@@ -50,12 +52,24 @@ if (Get-Command kubectl -ErrorAction SilentlyContinue) {
     Test-Native kubectl delete -f (Join-Path $RootDir 'k8s') --ignore-not-found --wait=true --timeout=300s | Out-Null
 }
 
-# 2. Hapus cluster
+# 2. Hapus record DNS supaya subdomain tidak menunjuk ke IP yang nanti dipakai orang lain
+if ($DnsZone) {
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    $json = civo domain record ls $DnsZone -o json 2> $null
+    $ErrorActionPreference = $old
+    if ($LASTEXITCODE -eq 0 -and $json) {
+        @(($json -join "`n") | ConvertFrom-Json) | Where-Object { $_.name -eq $Subdomain -and $_.type -in 'A', 'CNAME' } | ForEach-Object {
+            if (Test-Native civo domain record remove $DnsZone $_.id -y) { Info "Record DNS $Subdomain.$DnsZone dihapus" }
+        }
+    }
+}
+
+# 3. Hapus cluster
 Info "Menghapus cluster '$ClusterName'..."
 civo kubernetes remove $ClusterName --region $Region -y
 if ($LASTEXITCODE -ne 0) { Fail 'Gagal menghapus cluster' }
 
-# 3. Bersihkan file lokal
+# 4. Bersihkan file lokal
 Remove-Item -Force -ErrorAction SilentlyContinue $env:KUBECONFIG, (Join-Path $ScriptDir ".kubeconfig-$ClusterName.b64")
 
 Info 'SELESAI. Cek sisa resource yang mungkin masih ditagih:'
