@@ -32,7 +32,7 @@ function Get-Setting($name, $default = '') {
 
 $ClusterName = Get-Setting 'CLUSTER_NAME' 'nasduk'
 $Region = Get-Setting 'REGION' 'JKT1'  # Civo region Jakarta, Indonesia
-$DnsZone = Get-Setting 'DNS_ZONE' 'arupa.id'
+$DnsZone = Get-Setting 'DNS_ZONE' 'apps.arupa.id'
 $Subdomain = Get-Setting 'SUBDOMAIN' 'nasduk'
 $env:KUBECONFIG = Join-Path $ScriptDir ".kubeconfig-$ClusterName"
 
