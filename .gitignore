@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+scripts/.deploy.env
+scripts/.kubeconfig-*
