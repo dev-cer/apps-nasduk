@@ -49,14 +49,6 @@
         // Simulasi atau fetch data dari Menu Service backend
         async function loadMenus() {
             try {
-                // Gambar ilustrasi per menu
-                const images = [
-                    "https://images.unsplash.com/photo-1555126634-323283e090fa?auto=format&fit=crop&w=600&q=80", // Paket Komplit
-                    "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=600&q=80", // Paket Sederhana
-                    "https://images.unsplash.com/photo-1541544741938-0af808871cc0?auto=format&fit=crop&w=600&q=80", // Paket Semur
-                    "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=600&q=80"  // Paket Bihun Only
-                ];
-
                 const response = await fetch('/api/v1/menus');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const menus = await response.json();
@@ -64,7 +56,8 @@
                 container.innerHTML = '';
 
                 menus.forEach((menu, index) => {
-                    const imgUrl = images[index % images.length];
+                    // Ilustrasi nasi uduk sesuai isi paket (frontend/images/paket-<id>.svg)
+                    const imgUrl = `images/paket-${menu.id}.svg`;
                     let card = `
                         <div class="bg-white rounded-xl shadow-md overflow-hidden border border-amber-100 hover:shadow-lg transition">
                             <img src="${imgUrl}" alt="${menu.name}" class="w-full h-44 object-cover">
