@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Pesanan - Nasi Uduk Mpo Rohaya</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-amber-50 text-gray-800 font-sans">
+    <header class="bg-amber-700 text-white shadow-md py-6 text-center">
+        <h1 class="text-3xl font-bold">Admin Pesanan</h1>
+        <p class="text-amber-200 mt-1">Nasi Uduk Mpo Rohaya</p>
+    </header>
+
+    <main class="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
+        <section class="bg-white p-6 rounded-xl shadow-md border border-amber-200 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Token Admin</label>
+                <input type="password" id="token" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Masukkan token admin...">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal (kosongkan untuk semua pesanan)</label>
+                <input type="date" id="tanggal" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none">
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button onclick="loadOrders()" class="flex-1 bg-white border border-amber-600 text-amber-700 font-bold py-3 rounded-lg hover:bg-amber-50">Lihat Pesanan</button>
+                <button onclick="downloadExcel()" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg shadow">Unduh Excel 📥</button>
+            </div>
+            <p id="status" class="text-sm text-red-700"></p>
+        </section>
+
+        <section class="bg-white p-6 rounded-xl shadow-md border border-amber-200 overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="text-amber-900 border-b">
+                    <tr><th class="py-2 pr-4">No.</th><th class="py-2 pr-4">Waktu (WIB)</th><th class="py-2 pr-4">Nama</th><th class="py-2">Paket</th></tr>
+                </thead>
+                <tbody id="orders"><tr><td colspan="4" class="py-3 text-gray-500">Belum dimuat.</td></tr></tbody>
+            </table>
+        </section>
+    </main>
+
+    <script>
+        const tokenInput = document.getElementById('token');
+        try { tokenInput.value = localStorage.getItem('adminToken') || ''; } catch (e) {}
+
+        function query() {
+            const tanggal = document.getElementById('tanggal').value;
+            return tanggal ? `?date=${tanggal}` : '';
+        }
+
+        async function request(path) {
+            const token = tokenInput.value.trim();
+            try { localStorage.setItem('adminToken', token); } catch (e) {}
+            document.getElementById('status').textContent = '';
+            const res = await fetch(path + query(), { headers: { 'X-Admin-Token': token } });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || `HTTP ${res.status}`);
+            }
+            return res;
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        async function loadOrders() {
+            try {
+                const orders = await (await request('/api/v1/orders')).json();
+                document.getElementById('orders').innerHTML = orders.length
+                    ? orders.map(o => `<tr class="border-b"><td class="py-2 pr-4">${o.order_id}</td><td class="py-2 pr-4">${o.created_at.slice(0, 16).replace('T', ' ')}</td><td class="py-2 pr-4">${escapeHtml(o.customer_name)}</td><td class="py-2">${escapeHtml(o.package_name)}</td></tr>`).join('')
+                    : '<tr><td colspan="4" class="py-3 text-gray-500">Belum ada pesanan.</td></tr>';
+            } catch (err) {
+                document.getElementById('status').textContent = 'Gagal memuat pesanan: ' + err.message;
+            }
+        }
+
+        async function downloadExcel() {
+            try {
+                const res = await request('/api/v1/orders/export.xlsx');
+                const blob = await res.blob();
+                const tanggal = document.getElementById('tanggal').value;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `pesanan-${tanggal || 'semua'}.xlsx`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+            } catch (err) {
+                document.getElementById('status').textContent = 'Gagal mengunduh Excel: ' + err.message;
+            }
+        }
+    </script>
+</body>
+</html>
