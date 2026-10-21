@@ -1,10 +1,23 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: order-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: order-service
 spec:
-  # 1 replika: data pesanan masih disimpan in-memory
+  # 1 replika + Recreate: database SQLite ada di volume ReadWriteOnce
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: order-service
@@ -21,6 +34,22 @@ spec:
         ports:
         - containerPort: 8000
         imagePullPolicy: Always
+        env:
+        - name: ORDERS_DB_PATH
+          value: /data/orders.db
+        - name: ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: order-admin
+              key: ADMIN_TOKEN
+              optional: true
+        volumeMounts:
+        - name: order-data
+          mountPath: /data
+      volumes:
+      - name: order-data
+        persistentVolumeClaim:
+          claimName: order-data
 ---
 apiVersion: v1
 kind: Service
