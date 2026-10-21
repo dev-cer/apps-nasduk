@@ -1,4 +1,4 @@
-apiVersion: apps/v1
+﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: menu-service
@@ -19,3 +19,17 @@ spec:
         image: ghcr.io/dev-cer/apps-nasduk:latest
         ports:
         - containerPort: 8000
+        imagePullPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: menu-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: menu-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
