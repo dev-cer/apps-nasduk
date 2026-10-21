@@ -18,14 +18,13 @@ load_env() { # baca scripts/.deploy.env (KEY=VALUE); environment variable tetap 
 load_env
 
 CLUSTER_NAME="${CLUSTER_NAME:-nasduk}"
-REGION="${REGION:-}"
+REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
 export KUBECONFIG="$SCRIPT_DIR/.kubeconfig-$CLUSTER_NAME"
 
 info() { printf '\033[1;33m==> %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 command -v civo >/dev/null || fail "'civo' belum terpasang"
-[ -n "$REGION" ] || fail "REGION belum diketahui. Jalankan: REGION=<kode> ./scripts/destroy.sh"
 civo kubernetes show "$CLUSTER_NAME" --region "$REGION" >/dev/null 2>&1 \
     || fail "Cluster '$CLUSTER_NAME' tidak ditemukan di region $REGION"
 
