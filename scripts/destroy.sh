@@ -19,7 +19,7 @@ load_env
 
 CLUSTER_NAME="${CLUSTER_NAME:-nasduk}"
 REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
-DNS_ZONE="${DNS_ZONE-arupa.id}"
+DNS_ZONE="${DNS_ZONE-apps.arupa.id}"
 SUBDOMAIN="${SUBDOMAIN:-nasduk}"
 export KUBECONFIG="$SCRIPT_DIR/.kubeconfig-$CLUSTER_NAME"
 

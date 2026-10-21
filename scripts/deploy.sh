@@ -23,7 +23,7 @@ REGION="${REGION:-JKT1}"  # Civo region Jakarta, Indonesia
 GITHUB_REPO="${GITHUB_REPO:-dev-cer/apps-nasduk}"
 IMAGE_OWNER="${GITHUB_REPO%%/*}"
 IMAGES="apps-nasduk apps-nasduk-order apps-nasduk-frontend"
-DNS_ZONE="${DNS_ZONE-arupa.id}"   # domain yang dikelola di DNS Civo; kosongkan untuk HTTP saja (tanpa domain)
+DNS_ZONE="${DNS_ZONE-apps.arupa.id}"   # zona DNS di Civo (didelegasikan dari arupa.id); kosongkan untuk HTTP saja
 SUBDOMAIN="${SUBDOMAIN:-nasduk}"
 DOMAIN=""
 [ -n "$DNS_ZONE" ] && DOMAIN="$SUBDOMAIN.$DNS_ZONE"
@@ -178,6 +178,21 @@ done
 URL="http://$IP"
 if [ -n "$DOMAIN" ]; then
     info "Mengarahkan $DOMAIN ke $IP ..."
+    # Buat zona di DNS Civo kalau belum ada
+    if ! civo domain ls -o custom -f name 2>/dev/null | grep -qx "$DNS_ZONE"; then
+        civo domain create "$DNS_ZONE" >/dev/null || fail "Gagal membuat zona $DNS_ZONE di DNS Civo"
+        info "Zona $DNS_ZONE dibuat di DNS Civo"
+    fi
+    # Zona Civo hanya berlaku kalau subdomain ini didelegasikan ke nameserver Civo
+    DELEGATED=1
+    if ! curl -s -m 10 "https://dns.google/resolve?name=$DNS_ZONE&type=NS" | grep -qi 'civo\.com'; then
+        DELEGATED=0
+        printf '\033[1;31mPERHATIAN: %s belum didelegasikan ke DNS Civo, HTTPS belum bisa aktif.\033[0m\n' "$DNS_ZONE"
+        echo "   Di panel DNS yang mengelola ${DNS_ZONE#*.} (nameserver saat ini), tambahkan 2 record NS:"
+        echo "     Name: ${DNS_ZONE%%.*}   Type: NS   Value: ns0.civo.com"
+        echo "     Name: ${DNS_ZONE%%.*}   Type: NS   Value: ns1.civo.com"
+        echo "   Setelah itu tidak perlu jalankan ulang; Caddy mencoba sendiri setiap beberapa menit."
+    fi
     # Daftar kosong: civo tidak mencetak apa pun dan tetap exit 0. Tipe record bisa huruf kecil ("a").
     if ! records="$(civo domain record ls "$DNS_ZONE" -o custom -f 'id|name|type|value' 2>"$ENV_FILE.err")"; then
         cat "$ENV_FILE.err" >&2; rm -f "$ENV_FILE.err"
@@ -189,14 +204,14 @@ if [ -n "$DOMAIN" ]; then
             | while read -r id; do civo domain record remove "$DNS_ZONE" "$id" -y >/dev/null; done
         civo domain record create "$DNS_ZONE" --name "$SUBDOMAIN" --type A --value "$IP" --ttl 600 >/dev/null
     fi
-    info "Menunggu DNS dan sertifikat HTTPS (biasanya 1-5 menit)..."
-    for _ in $(seq 1 60); do
+    [ "$DELEGATED" = 1 ] && info "Menunggu DNS dan sertifikat HTTPS (biasanya 1-5 menit)..."
+    for _ in $(seq 1 $((DELEGATED * 60))); do
         if curl -sf -o /dev/null -m 10 "https://$DOMAIN/"; then URL="https://$DOMAIN"; break; fi
         sleep 10
     done
     if [ "$URL" != "https://$DOMAIN" ]; then
         info "HTTPS untuk $DOMAIN belum aktif. Caddy akan terus mencoba otomatis; cek lagi beberapa menit lagi."
-        echo "   Kalau tetap tidak bisa: pastikan nameserver $DNS_ZONE di registrar adalah ns0.civo.com dan ns1.civo.com,"
+        echo "   Kalau tetap tidak bisa: pastikan record NS ${DNS_ZONE%%.*} -> ns0.civo.com dan ns1.civo.com sudah ada di DNS ${DNS_ZONE#*.},"
         echo "   lalu lihat log: kubectl --kubeconfig $KUBECONFIG logs deploy/caddy"
         URL="https://$DOMAIN"
     fi
