@@ -70,26 +70,7 @@
 
                 <div>
                     <p class="block text-sm font-medium text-gray-700 mb-2">Metode Pembayaran</p>
-                    <div class="grid grid-cols-3 gap-3">
-                        <label class="pay-option cursor-pointer">
-                            <input type="radio" name="payment" value="GoPay" class="sr-only" checked>
-                            <div class="border-2 rounded-xl p-3 text-center transition">
-                                <span class="inline-block px-3 py-1 rounded-full text-white font-bold text-sm" style="background:#00AED6">GoPay</span>
-                            </div>
-                        </label>
-                        <label class="pay-option cursor-pointer">
-                            <input type="radio" name="payment" value="OVO" class="sr-only">
-                            <div class="border-2 rounded-xl p-3 text-center transition">
-                                <span class="inline-block px-3 py-1 rounded-full text-white font-bold text-sm" style="background:#4C2A86">OVO</span>
-                            </div>
-                        </label>
-                        <label class="pay-option cursor-pointer">
-                            <input type="radio" name="payment" value="ShopeePay" class="sr-only">
-                            <div class="border-2 rounded-xl p-3 text-center transition">
-                                <span class="inline-block px-3 py-1 rounded-full text-white font-bold text-sm" style="background:#EE4D2D">ShopeePay</span>
-                            </div>
-                        </label>
-                    </div>
+                    <div id="payment-options" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3"></div>
                     <p class="text-xs text-gray-500 mt-2">Pembayaran manual: transfer ke nomor <strong id="pay-number-hint"></strong> setelah pesanan dikirim.</p>
                 </div>
 
@@ -137,6 +118,13 @@
 
     <script>
         const PAYMENT_NUMBER = '+6285669684973';
+        const PAYMENT_METHODS = [
+            { value: 'GoPay', logo: 'gopay.png' },
+            { value: 'OVO', logo: 'ovo.png' },
+            { value: 'ShopeePay', logo: 'shopeepay.png' },
+            { value: 'DANA', logo: 'dana.png' },
+            { value: 'LinkAja', logo: 'linkaja.png' },
+        ];
         let menus = [];
         let extras = [];
 
@@ -145,6 +133,13 @@
         const selectedPackage = () => menus.find(m => m.id === parseInt(document.getElementById('package-id').value));
 
         document.getElementById('pay-number-hint').textContent = PAYMENT_NUMBER;
+        document.getElementById('payment-options').innerHTML = PAYMENT_METHODS.map((m, i) => `
+            <label class="pay-option cursor-pointer">
+                <input type="radio" name="payment" value="${m.value}" class="sr-only" ${i === 0 ? 'checked' : ''}>
+                <div class="border-2 rounded-xl p-2 h-16 flex items-center justify-center bg-white transition">
+                    <img src="images/payment/${m.logo}" alt="${m.value}" class="max-h-10 max-w-full object-contain">
+                </div>
+            </label>`).join('');
 
         async function loadMenus() {
             try {

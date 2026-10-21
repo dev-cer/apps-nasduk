@@ -21,7 +21,6 @@ MENU_SERVICE_URL = os.getenv("MENU_SERVICE_URL", "http://menu-service")
 PAYMENT_NUMBER = os.getenv("PAYMENT_NUMBER", "+6285669684973")
 WIB = timezone(timedelta(hours=7))
 
-PAYMENT_METHODS = ("GoPay", "OVO", "ShopeePay")
 UNPAID, PAID = "Belum Bayar", "Lunas"
 
 class ExtraOrder(BaseModel):
@@ -35,7 +34,7 @@ class OrderRequest(BaseModel):
     addons: List[str] = []
     extras: List[ExtraOrder] = []
     note: str = Field("", max_length=500)
-    payment_method: Literal["GoPay", "OVO", "ShopeePay"]
+    payment_method: Literal["GoPay", "OVO", "ShopeePay", "DANA", "LinkAja"]
 
 class Order(BaseModel):
     order_id: int
