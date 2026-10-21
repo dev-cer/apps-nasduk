@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nasi Uduk Mpo Rohaya</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .pay-option input:checked + div { border-color: #d97706; background: #fffbeb; box-shadow: 0 0 0 2px #f59e0b; }
+    </style>
 </head>
 <body class="bg-amber-50 text-gray-800 font-sans">
     <header class="bg-amber-700 text-white shadow-md py-6 text-center">
@@ -25,53 +28,151 @@
             </div>
         </section>
 
+        <section class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4 text-amber-900 border-b-2 border-amber-300 pb-2">Menu Tambahan</h2>
+            <div id="extras-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600">Memuat...</div>
+        </section>
+
         <!-- Form Pemesanan / Checkout -->
-        <section class="bg-white p-6 rounded-xl shadow-md border border-amber-200">
+        <section id="order-section" class="bg-white p-6 rounded-xl shadow-md border border-amber-200">
             <h2 class="text-xl font-semibold mb-4 text-amber-900">Formulir Pemesanan</h2>
-            <form id="order-form" onsubmit="submitOrder(event)" class="space-y-4">
+            <form id="order-form" onsubmit="submitOrder(event)" class="space-y-5">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Nama Pemesan</label>
                     <input type="text" id="customer-name" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Masukkan nama Anda...">
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Pilih Paket ID</label>
-                    <input type="number" id="package-id" required min="1" max="4" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Contoh: 1 (Paket Komplit)">
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Pilih Paket</label>
+                        <select id="package-id" required onchange="renderAddons()" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Jumlah Porsi</label>
+                        <input type="number" id="quantity" value="1" min="1" max="50" required oninput="updateTotal()" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none">
+                    </div>
                 </div>
-                <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg transition duration-200 shadow">
+
+                <div>
+                    <p class="block text-sm font-medium text-gray-700 mb-1">Add-on Paket <span id="addon-limit" class="text-gray-500 font-normal"></span></p>
+                    <div id="addons" class="space-y-2 text-sm"></div>
+                </div>
+
+                <div>
+                    <p class="block text-sm font-medium text-gray-700 mb-1">Menu Tambahan (di luar paket)</p>
+                    <div id="extras" class="space-y-2 text-sm"></div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Catatan / Tambahan Lain</label>
+                    <textarea id="note" rows="2" maxlength="500" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Contoh: sambal dipisah, tanpa bawang goreng, tambah kerupuk kulit (harga dikonfirmasi penjual)"></textarea>
+                </div>
+
+                <div>
+                    <p class="block text-sm font-medium text-gray-700 mb-2">Metode Pembayaran</p>
+                    <div id="payment-options" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3"></div>
+                    <p class="text-xs text-gray-500 mt-2">Pembayaran manual: transfer ke nomor <strong id="pay-number-hint"></strong> setelah pesanan dikirim.</p>
+                </div>
+
+                <div class="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                    <span class="font-medium text-amber-900">Total</span>
+                    <span id="total" class="text-xl font-bold text-amber-900">Rp 0</span>
+                </div>
+
+                <button type="submit" id="submit-btn" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg transition duration-200 shadow">
                     Kirim Pesanan ke Dapur 🚀
                 </button>
             </form>
-            <div id="order-result" class="mt-4 hidden p-4 rounded-lg bg-green-100 text-green-800"></div>
+        </section>
+
+        <!-- Panel Pembayaran (muncul setelah pesanan terkirim) -->
+        <section id="payment-panel" class="hidden bg-white p-6 rounded-xl shadow-md border-2 border-green-300 mt-6">
+            <h2 class="text-xl font-semibold text-green-800">Pesanan Diterima ✅</h2>
+            <p class="text-sm text-gray-600 mt-1">No. Pesanan <strong id="pay-order-id"></strong></p>
+            <div class="mt-4 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-gray-600">Total yang harus dibayar</span>
+                    <span id="pay-total" class="text-2xl font-bold text-gray-900"></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-gray-600">Metode</span>
+                    <span id="pay-method" class="font-semibold"></span>
+                </div>
+                <div class="bg-gray-50 border rounded-lg p-4">
+                    <p class="text-sm text-gray-600">Transfer ke nomor <span id="pay-method-2"></span>:</p>
+                    <div class="flex items-center justify-between mt-1 gap-3">
+                        <span id="pay-number" class="text-xl font-mono font-bold tracking-wide"></span>
+                        <button type="button" onclick="copyNumber()" id="copy-btn" class="text-sm bg-amber-100 hover:bg-amber-200 text-amber-900 px-3 py-1 rounded-lg">Salin</button>
+                    </div>
+                </div>
+                <ol class="text-sm text-gray-600 list-decimal list-inside space-y-1">
+                    <li>Buka aplikasi <span class="pay-method-name"></span>, pilih <em>Transfer / Kirim</em> ke nomor di atas.</li>
+                    <li>Masukkan nominal <strong id="pay-total-2"></strong> dan tulis catatan <strong>Pesanan #<span id="pay-order-id-2"></span></strong>.</li>
+                    <li>Kirim bukti transfer lewat WhatsApp agar pesanan segera diproses.</li>
+                </ol>
+                <a id="wa-link" target="_blank" rel="noopener" class="block text-center w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow">Kirim Bukti Transfer via WhatsApp</a>
+                <button type="button" onclick="newOrder()" class="block w-full text-center text-amber-700 hover:underline text-sm">Buat pesanan lain</button>
+            </div>
         </section>
     </main>
 
     <script>
-        // Simulasi atau fetch data dari Menu Service backend
+        const PAYMENT_NUMBER = '+6285669684973';
+        const PAYMENT_METHODS = [
+            { value: 'GoPay', logo: 'gopay.png' },
+            { value: 'OVO', logo: 'ovo.png' },
+            { value: 'ShopeePay', logo: 'shopeepay.png' },
+            { value: 'DANA', logo: 'dana.png' },
+            { value: 'LinkAja', logo: 'linkaja.png' },
+        ];
+        let menus = [];
+        let extras = [];
+
+        const rupiah = n => 'Rp ' + Number(n).toLocaleString('id-ID');
+        const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const selectedPackage = () => menus.find(m => m.id === parseInt(document.getElementById('package-id').value));
+
+        document.getElementById('pay-number-hint').textContent = PAYMENT_NUMBER;
+        document.getElementById('payment-options').innerHTML = PAYMENT_METHODS.map((m, i) => `
+            <label class="pay-option cursor-pointer">
+                <input type="radio" name="payment" value="${m.value}" class="sr-only" ${i === 0 ? 'checked' : ''}>
+                <div class="border-2 rounded-xl p-2 h-16 flex items-center justify-center bg-white transition">
+                    <img src="images/payment/${m.logo}" alt="${m.value}" class="max-h-10 max-w-full object-contain">
+                </div>
+            </label>`).join('');
+
         async function loadMenus() {
             try {
                 const response = await fetch('/api/v1/menus');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const menus = await response.json();
+                menus = await response.json();
                 const container = document.getElementById('menu-container');
                 container.innerHTML = '';
 
-                menus.forEach((menu, index) => {
+                menus.forEach(menu => {
                     // Foto nasi uduk sesuai isi paket (frontend/images/paket-<id>.jpg)
                     const imgUrl = `images/paket-${menu.id}.jpg`;
-                    let card = `
-                        <div class="bg-white rounded-xl shadow-md overflow-hidden border border-amber-100 hover:shadow-lg transition">
-                            <img src="${imgUrl}" alt="${menu.name}" class="w-full h-44 object-cover">
-                            <div class="p-4">
-                                <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-semibold">Paket ID: ${menu.id}</span>
-                                <h3 class="text-lg font-bold text-gray-900 mt-2">${menu.name}</h3>
-                                <ul class="text-sm text-gray-600 mt-2 list-disc list-inside space-y-1">
-                                    ${menu.items.map(item => `<li>${item}</li>`).join('')}
+                    container.innerHTML += `
+                        <div class="bg-white rounded-xl shadow-md overflow-hidden border border-amber-100 hover:shadow-lg transition flex flex-col">
+                            <img src="${imgUrl}" alt="${escapeHtml(menu.name)}" class="w-full h-44 object-cover">
+                            <div class="p-4 flex-1 flex flex-col">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-semibold">Paket ${menu.id}</span>
+                                    <span class="font-bold text-amber-800">${rupiah(menu.price)}</span>
+                                </div>
+                                <h3 class="text-lg font-bold text-gray-900 mt-2">${escapeHtml(menu.name)}</h3>
+                                <ul class="text-sm text-gray-600 mt-2 list-disc list-inside space-y-1 flex-1">
+                                    ${menu.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
                                 </ul>
+                                <button type="button" onclick="choosePackage(${menu.id})" class="mt-3 w-full bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold py-2 rounded-lg">Pilih Paket Ini</button>
                             </div>
                         </div>
                     `;
-                    container.innerHTML += card;
                 });
+
+                document.getElementById('package-id').innerHTML = menus
+                    .map(m => `<option value="${m.id}">${escapeHtml(m.name)} — ${rupiah(m.price)}</option>`).join('');
+                renderAddons();
             } catch (error) {
                 console.error("Gagal memuat menu:", error);
                 document.getElementById('menu-container').innerHTML =
@@ -79,28 +180,138 @@
             }
         }
 
+        async function loadExtras() {
+            try {
+                const response = await fetch('/api/v1/extras');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                extras = await response.json();
+                document.getElementById('extras-list').innerHTML = extras.map(e => `
+                    <div class="bg-white rounded-lg border border-amber-100 px-4 py-3 flex justify-between">
+                        <span class="text-gray-800">${escapeHtml(e.name)}</span><span class="font-semibold text-amber-800">${rupiah(e.price)}</span>
+                    </div>`).join('');
+                document.getElementById('extras').innerHTML = extras.map(e => `
+                    <div class="flex items-center justify-between gap-3">
+                        <span>${escapeHtml(e.name)} <span class="text-gray-500">(${rupiah(e.price)})</span></span>
+                        <input type="number" min="0" max="50" value="0" data-extra-id="${e.id}" oninput="updateTotal()" class="w-20 px-2 py-1 border rounded-lg text-right">
+                    </div>`).join('');
+            } catch (error) {
+                console.error("Gagal memuat menu tambahan:", error);
+                document.getElementById('extras-list').innerHTML = '<p class="text-red-700">Menu tambahan belum bisa dimuat.</p>';
+                document.getElementById('extras').innerHTML = '<p class="text-gray-500">Tidak tersedia saat ini.</p>';
+            }
+        }
+
+        function choosePackage(id) {
+            document.getElementById('package-id').value = id;
+            renderAddons();
+            document.getElementById('order-section').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderAddons() {
+            const pkg = selectedPackage();
+            if (!pkg) return;
+            document.getElementById('addon-limit').textContent = `(maks. ${pkg.max_addons}, harga per porsi)`;
+            document.getElementById('addons').innerHTML = pkg.allowed_addons.length
+                ? pkg.allowed_addons.map((a, i) => `
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" value="${escapeHtml(a.name)}" data-price="${a.price}" onchange="limitAddons(this)" class="addon h-4 w-4 accent-amber-600">
+                        <span>${escapeHtml(a.name)} <span class="text-gray-500">(${a.price ? '+' + rupiah(a.price) : 'gratis'})</span></span>
+                    </label>`).join('')
+                : '<p class="text-gray-500">Tidak ada add-on untuk paket ini.</p>';
+            updateTotal();
+        }
+
+        function limitAddons(changed) {
+            const pkg = selectedPackage();
+            const checked = [...document.querySelectorAll('.addon:checked')];
+            if (checked.length > pkg.max_addons) changed.checked = false;
+            updateTotal();
+        }
+
+        function collectExtras() {
+            return [...document.querySelectorAll('[data-extra-id]')]
+                .map(el => ({ id: parseInt(el.dataset.extraId), qty: parseInt(el.value) || 0 }))
+                .filter(e => e.qty > 0);
+        }
+
+        function updateTotal() {
+            const pkg = selectedPackage();
+            if (!pkg) return;
+            const qty = Math.max(1, parseInt(document.getElementById('quantity').value) || 1);
+            const addonSum = [...document.querySelectorAll('.addon:checked')].reduce((s, el) => s + parseInt(el.dataset.price), 0);
+            const extraSum = collectExtras().reduce((s, e) => s + e.qty * extras.find(x => x.id === e.id).price, 0);
+            document.getElementById('total').textContent = rupiah((pkg.price + addonSum) * qty + extraSum);
+        }
+
         async function submitOrder(event) {
             event.preventDefault();
-            const name = document.getElementById('customer-name').value;
-            const packageId = parseInt(document.getElementById('package-id').value);
-
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.textContent = 'Mengirim...';
             try {
                 const res = await fetch('/api/v1/orders', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ package_id: packageId, customer_name: name })
+                    body: JSON.stringify({
+                        customer_name: document.getElementById('customer-name').value,
+                        package_id: parseInt(document.getElementById('package-id').value),
+                        quantity: parseInt(document.getElementById('quantity').value) || 1,
+                        addons: [...document.querySelectorAll('.addon:checked')].map(el => el.value),
+                        extras: collectExtras(),
+                        note: document.getElementById('note').value,
+                        payment_method: document.querySelector('input[name="payment"]:checked').value,
+                    })
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-                const resultDiv = document.getElementById('order-result');
-                resultDiv.classList.remove('hidden');
-                resultDiv.innerHTML = `<strong>Berhasil!</strong> ${data.message} (ID Pesanan: ${data.order_id})`;
+                if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `HTTP ${res.status}`);
+                showPayment(data);
             } catch (err) {
                 alert("Terjadi kesalahan saat mengirim pesanan: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Kirim Pesanan ke Dapur 🚀';
             }
         }
 
-        loadMenus();
+        function showPayment(data) {
+            const name = document.getElementById('customer-name').value.trim();
+            document.getElementById('pay-order-id').textContent = '#' + data.order_id;
+            document.getElementById('pay-order-id-2').textContent = data.order_id;
+            document.getElementById('pay-total').textContent = rupiah(data.total);
+            document.getElementById('pay-total-2').textContent = rupiah(data.total);
+            document.getElementById('pay-method').textContent = data.payment_method;
+            document.getElementById('pay-method-2').textContent = data.payment_method;
+            document.querySelectorAll('.pay-method-name').forEach(el => el.textContent = data.payment_method);
+            document.getElementById('pay-number').textContent = data.payment_number;
+            const msg = `Halo Mpo Rohaya, saya ${name} sudah transfer ${rupiah(data.total)} via ${data.payment_method} untuk Pesanan #${data.order_id}. Berikut bukti transfernya.`;
+            document.getElementById('wa-link').href = `https://wa.me/${data.payment_number.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+
+            document.getElementById('order-section').classList.add('hidden');
+            const panel = document.getElementById('payment-panel');
+            panel.classList.remove('hidden');
+            panel.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function copyNumber() {
+            const number = document.getElementById('pay-number').textContent;
+            try {
+                await navigator.clipboard.writeText(number);
+                document.getElementById('copy-btn').textContent = 'Tersalin ✓';
+            } catch (e) {
+                prompt('Salin nomor ini:', number);
+            }
+        }
+
+        function newOrder() {
+            document.getElementById('order-form').reset();
+            document.getElementById('copy-btn').textContent = 'Salin';
+            document.getElementById('payment-panel').classList.add('hidden');
+            document.getElementById('order-section').classList.remove('hidden');
+            renderAddons();
+            document.getElementById('order-section').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        loadMenus().then(loadExtras).then(updateTotal);
     </script>
 </body>
 </html>

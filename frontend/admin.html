@@ -12,7 +12,7 @@
         <p class="text-amber-200 mt-1">Nasi Uduk Mpo Rohaya</p>
     </header>
 
-    <main class="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
+    <main class="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
         <section class="bg-white p-6 rounded-xl shadow-md border border-amber-200 space-y-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Token Admin</label>
@@ -32,9 +32,9 @@
         <section class="bg-white p-6 rounded-xl shadow-md border border-amber-200 overflow-x-auto">
             <table class="w-full text-sm text-left">
                 <thead class="text-amber-900 border-b">
-                    <tr><th class="py-2 pr-4">No.</th><th class="py-2 pr-4">Waktu (WIB)</th><th class="py-2 pr-4">Nama</th><th class="py-2">Paket</th></tr>
+                    <tr><th class="py-2 pr-4">No.</th><th class="py-2 pr-4">Waktu (WIB)</th><th class="py-2 pr-4">Nama</th><th class="py-2 pr-4">Pesanan</th><th class="py-2 pr-4 text-right">Total</th><th class="py-2 pr-4">Bayar</th><th class="py-2">Status</th></tr>
                 </thead>
-                <tbody id="orders"><tr><td colspan="4" class="py-3 text-gray-500">Belum dimuat.</td></tr></tbody>
+                <tbody id="orders"><tr><td colspan="7" class="py-3 text-gray-500">Belum dimuat.</td></tr></tbody>
             </table>
         </section>
     </main>
@@ -48,11 +48,11 @@
             return tanggal ? `?date=${tanggal}` : '';
         }
 
-        async function request(path) {
+        async function request(path, options = {}) {
             const token = tokenInput.value.trim();
             try { localStorage.setItem('adminToken', token); } catch (e) {}
             document.getElementById('status').textContent = '';
-            const res = await fetch(path + query(), { headers: { 'X-Admin-Token': token } });
+            const res = await fetch(path, { ...options, headers: { 'X-Admin-Token': token, 'Content-Type': 'application/json' } });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 throw new Error(data.detail || `HTTP ${res.status}`);
@@ -66,18 +66,46 @@
 
         async function loadOrders() {
             try {
-                const orders = await (await request('/api/v1/orders')).json();
+                const orders = await (await request('/api/v1/orders' + query())).json();
                 document.getElementById('orders').innerHTML = orders.length
-                    ? orders.map(o => `<tr class="border-b"><td class="py-2 pr-4">${o.order_id}</td><td class="py-2 pr-4">${o.created_at.slice(0, 16).replace('T', ' ')}</td><td class="py-2 pr-4">${escapeHtml(o.customer_name)}</td><td class="py-2">${escapeHtml(o.package_name)}</td></tr>`).join('')
-                    : '<tr><td colspan="4" class="py-3 text-gray-500">Belum ada pesanan.</td></tr>';
+                    ? orders.map(orderRow).join('')
+                    : '<tr><td colspan="7" class="py-3 text-gray-500">Belum ada pesanan.</td></tr>';
             } catch (err) {
                 document.getElementById('status').textContent = 'Gagal memuat pesanan: ' + err.message;
             }
         }
 
+        const rupiah = n => 'Rp ' + Number(n).toLocaleString('id-ID');
+
+        function orderRow(o) {
+            const items = [`${o.quantity}x ${o.package_name}`, ...o.addons.map(a => `+ ${a}`), ...o.extras.map(e => `${e.qty}x ${e.name}`)];
+            const paid = o.payment_status === 'Lunas';
+            return `<tr class="border-b align-top">
+                <td class="py-2 pr-4">${o.order_id}</td>
+                <td class="py-2 pr-4 whitespace-nowrap">${o.created_at.slice(0, 16).replace('T', ' ')}</td>
+                <td class="py-2 pr-4">${escapeHtml(o.customer_name)}</td>
+                <td class="py-2 pr-4">${items.map(escapeHtml).join('<br>')}${o.note ? `<div class="text-gray-500 italic mt-1">Catatan: ${escapeHtml(o.note)}</div>` : ''}</td>
+                <td class="py-2 pr-4 text-right whitespace-nowrap">${rupiah(o.total)}</td>
+                <td class="py-2 pr-4">${escapeHtml(o.payment_method)}</td>
+                <td class="py-2">
+                    <span class="inline-block px-2 py-1 rounded text-xs font-semibold ${paid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${escapeHtml(o.payment_status)}</span>
+                    <button onclick="setPayment(${o.order_id}, '${paid ? 'Belum Bayar' : 'Lunas'}')" class="block mt-1 text-xs text-amber-700 hover:underline">${paid ? 'Batalkan lunas' : 'Tandai lunas'}</button>
+                </td>
+            </tr>`;
+        }
+
+        async function setPayment(orderId, status) {
+            try {
+                await request(`/api/v1/orders/${orderId}/payment`, { method: 'PATCH', body: JSON.stringify({ payment_status: status }) });
+                loadOrders();
+            } catch (err) {
+                document.getElementById('status').textContent = 'Gagal mengubah status: ' + err.message;
+            }
+        }
+
         async function downloadExcel() {
             try {
-                const res = await request('/api/v1/orders/export.xlsx');
+                const res = await request('/api/v1/orders/export.xlsx' + query());
                 const blob = await res.blob();
                 const tanggal = document.getElementById('tanggal').value;
                 const a = document.createElement('a');
